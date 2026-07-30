@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-ink-100 text-ink-900 antialiased;
+    /* A single soft wash behind the cards, so the page reads as one surface with
+       things resting on it rather than as a flat grey block. */
+    background-image:
+      radial-gradient(60rem 32rem at 50% -12rem, rgba(24, 163, 126, 0.14), transparent 70%),
+      radial-gradient(46rem 26rem at 90% 8rem, rgba(79, 94, 119, 0.10), transparent 70%);
+    background-attachment: fixed;
+  }
+
+  /* Digits line up column-wise wherever a figure can change: readings, amounts,
+     day counts. Without this the numbers jitter as they update. */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Meter readings are easier to check digit-by-digit without spinners. */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+
+  /* Focus is drawn per-component; this stops the browser doubling up on it. */
+  :focus-visible {
+    outline: none;
+  }
+}
+
+@layer components {
+  /* Shared focus treatment, so every control announces focus the same way. */
+  .focus-ring {
+    @apply focus-visible:ring-2 focus-visible:ring-brand-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
