@@ -10,9 +10,16 @@ type Props = {
   mode: ReadingMode;
   onModeChange: (mode: ReadingMode) => void;
   onReadingChange: (reading: number | null) => void;
+  /** The bill's own present reading, passed through so a scanned photo can be sanity-checked. */
+  previousReading: number | null;
 };
 
-export function CurrentReadingCard({ mode, onModeChange, onReadingChange }: Props) {
+export function CurrentReadingCard({
+  mode,
+  onModeChange,
+  onReadingChange,
+  previousReading,
+}: Props) {
   return (
     <Card className="animate-fade-up">
       <SectionHeader step={2} title="Your meter reading today" />
@@ -44,6 +51,7 @@ export function CurrentReadingCard({ mode, onModeChange, onReadingChange }: Prop
           onConfirm={onReadingChange}
           onClear={() => onReadingChange(null)}
           onSwitchToManual={() => onModeChange("manual")}
+          previousReading={previousReading}
         />
       ) : (
         <ManualReadingInput key="manual" onChange={onReadingChange} />

@@ -123,6 +123,7 @@ export function BillScreen({
             mode={mode}
             onModeChange={changeMode}
             onReadingChange={setCurrentReading}
+            previousReading={bill.presentReading}
           />
 
           {currentReading !== null && consumption && (

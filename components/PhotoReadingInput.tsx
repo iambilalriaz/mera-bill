@@ -3,14 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import { Camera, Check, ImagePlus, Keyboard } from "lucide-react";
 import { compressImage } from "@/lib/compressImage";
+import type { MeterType } from "@/lib/meterVision";
+import { resolvePlausibleReading } from "@/lib/readingValidation";
 import { Alert, Badge, Button, Label, Skeleton, inputClass } from "./ui";
 
 type Extraction = {
   confidence: "high" | "medium" | "low";
   rawText: string;
   notice?: string;
-  /** Which kind of meter was recognised. Shown as a label; nothing depends on it. */
-  meterType?: "digital" | "mechanical" | "unknown";
+  /** Which kind of meter was recognised. Shown as a label. */
+  meterType?: MeterType;
 };
 
 const METER_TYPE_LABEL: Record<string, string> = {
@@ -30,9 +32,16 @@ type Props = {
   /** Fires when a new photo is picked, so any previous result is dropped. */
   onClear: () => void;
   onSwitchToManual: () => void;
+  /** The bill's own present reading, used to sanity-check the scan. Null until the bill loads. */
+  previousReading: number | null;
 };
 
-export function PhotoReadingInput({ onConfirm, onClear, onSwitchToManual }: Props) {
+export function PhotoReadingInput({
+  onConfirm,
+  onClear,
+  onSwitchToManual,
+  previousReading,
+}: Props) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extraction, setExtraction] = useState<Extraction | null>(null);
@@ -88,13 +97,21 @@ export function PhotoReadingInput({ onConfirm, onClear, onSwitchToManual }: Prop
         return;
       }
 
+      const resolution = resolvePlausibleReading(
+        data.reading,
+        data.meterType ?? "unknown",
+        previousReading,
+      );
+
       setExtraction({
-        confidence: data.confidence,
+        // An adjusted reading was inferred, not directly read, so it should not
+        // still claim to be a high-confidence scan.
+        confidence: resolution.adjusted && data.confidence === "high" ? "medium" : data.confidence,
         rawText: data.rawText ?? "",
-        notice: data.notice,
+        notice: [data.notice, resolution.notice].filter(Boolean).join(" "),
         meterType: data.meterType,
       });
-      setDraft(String(data.reading));
+      setDraft(String(resolution.reading));
       setShowManualHint(Boolean(data.suggestManualEntry));
     } catch {
       setError("Could not reach the server. Please check your connection and try again.");

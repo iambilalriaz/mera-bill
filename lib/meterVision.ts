@@ -66,12 +66,14 @@ For both kinds:
 Respond with JSON only. No markdown, no code fences, no commentary. Match exactly this shape:
 {"reading": <number or null>, "confidence": "high" | "medium" | "low", "rawText": "<the exact characters you read from the display or wheels, or a short note if unreadable>", "meterType": "digital" | "mechanical" | "unknown"}`;
 
+export type MeterType = "digital" | "mechanical" | "unknown";
+
 export type MeterReadingExtraction = {
   reading: number | null;
   confidence: "high" | "medium" | "low";
   rawText: string;
-  /** Which kind of meter the model believes it read. Informational only. */
-  meterType: "digital" | "mechanical" | "unknown";
+  /** Which kind of meter the model believes it read. See lib/readingValidation.ts. */
+  meterType: MeterType;
 };
 
 export class MeterVisionError extends Error {

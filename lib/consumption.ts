@@ -1,7 +1,11 @@
 import { daysElapsedSince, parseBillDate } from "./billDate";
 
-/** Above these, a reading is far more likely to be a bad photo than real usage. */
-const ABNORMAL_TOTAL_UNITS = 3000;
+/**
+ * Above these, a reading is far more likely to be a bad photo than real usage.
+ * Exported so lib/readingValidation.ts can judge OCR candidates by the same bar
+ * this module uses to warn about the final chosen reading.
+ */
+export const ABNORMAL_TOTAL_UNITS = 3000;
 const ABNORMAL_UNITS_PER_DAY = 150;
 
 export type ConsumptionWarning = {
