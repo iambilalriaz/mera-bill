@@ -40,18 +40,30 @@ npm run typecheck
 Photo reading is optional: without `GEMINI_API_KEY` the app still works, it just
 tells the user to type the reading in instead.
 
-## Deploying
+## Deploying: the portal is geo-fenced to Pakistan
 
-The PITC bill portal is hosted in Pakistan and is slow — sometimes unreachable — from
-servers outside the region. Vercel defaults to `iad1` (Washington, D.C.), from which
-every lookup failed on a TCP connect timeout while the identical request succeeded from
-a local machine. `vercel.json` therefore pins functions to `bom1` (Mumbai), the closest
-region to Pakistan, and `lib/providers/pitc.ts` raises the connect timeout above Node's
-10s default and retries a failed lookup once.
+`bill.pitc.com.pk` (203.215.173.235) accepts TCP connections only from inside Pakistan.
+Measured from 25 nodes worldwide, **none** could complete a handshake, while the same
+request from a Pakistani connection completes in ~66 ms. From a host outside Pakistan
+every lookup therefore fails with `UND_ERR_CONNECT_TIMEOUT` or `ETIMEDOUT` — SYN sent,
+nothing returned. **No amount of timeout tuning or retrying changes this, and no Vercel
+region fixes it.**
 
-If the portal blocks the deployment region outright rather than merely being slow to
-reach, set `BILL_PORTAL_PROXY_URL` to a proxy that egresses from Pakistan; the provider
-routes portal traffic through it with no other change.
+So a deployment needs an egress inside Pakistan. Set `BILL_PORTAL_PROXY_URL` to an HTTP
+proxy that egresses there and `lib/providers/pitc.ts` routes portal traffic through it
+with no other change; without it, lookups fail wherever the app is hosted outside the
+country.
+
+Two traps worth recording, both measured rather than assumed:
+
+- **Do not pin functions to `bom1` (Mumbai).** India blocks Pakistani networks — all
+  three Indian nodes tested failed against *both* `bill.pitc.com.pk` and the unfenced
+  `mepco.com.pk`. Mumbai cannot reach a Pakistani proxy either. The default `iad1`
+  reaches Pakistani address space fine (`mepco.com.pk` in ~0.7 s from New York).
+- **The fence is specific to the bill portal.** `mepco.com.pk` (163.61.25.38) answers
+  from the US and Europe, so a general "Pakistan is unreachable" theory is wrong — but
+  MEPCO's site only links back to `bill.pitc.com.pk`, so it is not an alternative
+  source of bill data.
 
 ## How it fits together
 

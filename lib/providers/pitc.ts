@@ -22,10 +22,12 @@ import {
 const PORTAL_ORIGIN = "https://bill.pitc.com.pk";
 
 /**
- * The portal is hosted in Pakistan and is slow to reach from outside it. Node's
- * default connect timeout is 10s, which expired before the TCP handshake completed
- * and surfaced as `UND_ERR_CONNECT_TIMEOUT` — note this is *below* the per-request
- * timeout below, so raising that alone had no effect. Both are set explicitly now.
+ * The portal only accepts connections from inside Pakistan (measured: unreachable from
+ * 25 nodes worldwide), so from a host outside the country these timeouts only govern how
+ * long a doomed lookup takes — `BILL_PORTAL_PROXY_URL` is what makes it work at all.
+ *
+ * Node's default connect timeout is 10s and sits *below* the per-request timeout, so it
+ * decided the deadline no matter what `FETCH_TIMEOUT_MS` said. Both are explicit now.
  */
 const CONNECT_TIMEOUT_MS = 15_000;
 const FETCH_TIMEOUT_MS = 20_000;
