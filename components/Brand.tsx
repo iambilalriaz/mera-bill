@@ -15,7 +15,7 @@ export function Brand({ className = "" }: { className?: string }) {
         <Zap className="h-5 w-5" aria-hidden="true" strokeWidth={2.5} />
       </span>
       <span className="text-[26px] font-bold leading-none tracking-tight text-ink-900 sm:text-[28px]">
-        Mera<span className="text-brand-600">Bill</span>
+        Mera <span className="text-brand-600">Bill</span>
       </span>
     </span>
   );

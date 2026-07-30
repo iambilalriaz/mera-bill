@@ -12,12 +12,12 @@ const inter = Inter({
   variable: "--font-sans",
 });
 
-const APP_NAME = "MeraBill";
+const APP_NAME = "Mera Bill";
 const TAGLINE = "Electricity Bill & Unit Tracker for Pakistan";
 
 const DESCRIPTION =
   "Fetch your electricity bill from any Pakistani DISCO, read your meter from a photo, " +
-  "and track the units you have used since your last bill. MeraBill estimates what your " +
+  "and track the units you have used since your last bill. Mera Bill estimates what your " +
   "next bill will cost using official NEPRA tariff rates.";
 
 /**

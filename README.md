@@ -1,4 +1,4 @@
-# MeraBill
+# Mera Bill
 
 Fetch your electricity bill, read your meter from a photo, and see how many units you
 have used since your last bill — plus an estimate of what the next one will cost.
