@@ -3,7 +3,12 @@ import { MeterVisionError, extractMeterReading } from "@/lib/meterVision";
 
 export const runtime = "nodejs";
 
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+// Vercel Functions hard-cap the request body at 4.5 MB on every plan — not
+// configurable — and reject anything over that before this code ever runs. The
+// client compresses photos before upload (see lib/compressImage.ts) specifically to
+// stay under that, so this only exists as a backstop with headroom for multipart
+// overhead; it should rarely fire.
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 export async function POST(request: Request) {
   let form: FormData;
@@ -34,7 +39,7 @@ export async function POST(request: Request) {
 
   if (image.size > MAX_IMAGE_BYTES) {
     return NextResponse.json(
-      { error: "That photo is too large. Please use an image under 10 MB." },
+      { error: "That photo is too large. Please use an image under 4 MB." },
       { status: 413 },
     );
   }

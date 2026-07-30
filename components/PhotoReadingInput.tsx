@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Camera, Check, ImagePlus, Keyboard } from "lucide-react";
+import { compressImage } from "@/lib/compressImage";
 import { Alert, Badge, Button, Label, Skeleton, inputClass } from "./ui";
 
 type Extraction = {
@@ -72,8 +73,11 @@ export function PhotoReadingInput({ onConfirm, onClear, onSwitchToManual }: Prop
     setExtracting(true);
 
     try {
+      // Uncompressed phone photos routinely exceed Vercel's 4.5 MB request-body limit,
+      // which rejects the request before our own code runs — see compressImage.ts.
+      const compressed = await compressImage(file);
       const body = new FormData();
-      body.append("image", file);
+      body.append("image", compressed);
 
       const response = await fetch("/api/extract-reading", { method: "POST", body });
       const data = await response.json();

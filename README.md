@@ -65,15 +65,54 @@ Two traps worth recording, both measured rather than assumed:
   MEPCO's site only links back to `bill.pitc.com.pk`, so it is not an alternative
   source of bill data.
 
+The Android app sidesteps this whole problem instead of routing around it — see
+"Native app (Android)" below.
+
+## Native app (Android): the other way past the geo-fence
+
+The proxy above fixes the geo-fence for a *web* deployment. The Android app fixes the
+same problem a different way: instead of a server somewhere reaching into Pakistan, the
+request runs on the user's own phone, which is already there.
+
+The app is the same Next.js site wrapped by [Capacitor](https://capacitorjs.com/).
+`capacitor.config.ts` points its WebView at the live Vercel deployment rather than a
+bundled static export — the app has server-rendered routes and API endpoints a static
+export can't carry, so the shell just loads the real site. The only thing that changes
+on-device is how the bill lookup itself is made:
+
+- **On the web**, `BillScreen` calls `POST /api/bill`, which runs `lib/providers/pitc.ts`
+  server-side (the proxy-routed path above).
+- **Inside the native app** (`Capacitor.isNativePlatform()`), it calls
+  `lib/providers/pitcNative.ts` instead, which fetches `bill.pitc.com.pk` directly from
+  the device using Capacitor's native HTTP layer. Native networking isn't subject to the
+  browser's CORS/credentials rule that blocks a plain in-page `fetch()` from carrying the
+  portal's session cookie — confirmed on-device: the session cookie is carried
+  automatically between the search and postback requests, no manual cookie handling
+  needed, unlike the server-side flow.
+
+`pitcNative.ts` deliberately reimplements parsing with `DOMParser`/`querySelectorAll`
+instead of reusing `pitc.ts`'s cheerio-based version: cheerio (and the server's `undici`
+proxy agent) must stay out of the client bundle, and `app/page.tsx`'s server-only
+registry lookup is avoided for the same reason. Its CSS selectors mirror `pitc.ts`'s —
+**a portal markup change needs both files updated.**
+
+Building it: `npx cap sync android` after any web change, then build via Android Studio
+or `cd android && ./gradlew assembleDebug` (needs a JDK and the Android SDK command-line
+tools — no Android Studio install required for the CLI path). The app icon and splash
+screen are generated from `assets/` with `npx capacitor-assets generate --android`; edit
+`public/icon.svg` and rerun that if the brand mark changes.
+
 ## How it fits together
 
 | Path | Role |
 | --- | --- |
 | `lib/providers/types.ts` | `BillProvider` / `UtilityBillData` contracts, `BillProviderError` |
-| `lib/providers/pitc.ts` | The shared PITC portal flow: session postback, selectors, parsing |
+| `lib/providers/pitc.ts` | The shared PITC portal flow (server-side): session postback, selectors, parsing |
+| `lib/providers/pitcNative.ts` | The same flow, on-device for the Android app — see above |
 | `lib/providers/{mepco,lesco,fesco}.ts` | One line each — a code and a label |
 | `lib/providers/registry.ts` | `getProvider(code)` factory — the only file that knows which adapters exist |
 | `lib/providers/catalog.ts` | DISCO list for the dropdown; `enabled` is derived from the registry |
+| `capacitor.config.ts` / `android/` | The Android app shell — see "Native app" above |
 | `lib/billDate.ts` | Parses the `"30 JUN 26"` bill date format; returns `null` rather than throwing |
 | `lib/consumption.ts` | Units consumed, days elapsed, units/day, and the "this looks wrong" warnings |
 | `lib/meterVision.ts` | Gemini call + strict JSON parsing of the meter reading |
