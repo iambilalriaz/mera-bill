@@ -40,6 +40,19 @@ npm run typecheck
 Photo reading is optional: without `GEMINI_API_KEY` the app still works, it just
 tells the user to type the reading in instead.
 
+## Deploying
+
+The PITC bill portal is hosted in Pakistan and is slow — sometimes unreachable — from
+servers outside the region. Vercel defaults to `iad1` (Washington, D.C.), from which
+every lookup failed on a TCP connect timeout while the identical request succeeded from
+a local machine. `vercel.json` therefore pins functions to `bom1` (Mumbai), the closest
+region to Pakistan, and `lib/providers/pitc.ts` raises the connect timeout above Node's
+10s default and retries a failed lookup once.
+
+If the portal blocks the deployment region outright rather than merely being slow to
+reach, set `BILL_PORTAL_PROXY_URL` to a proxy that egresses from Pakistan; the provider
+routes portal traffic through it with no other change.
+
 ## How it fits together
 
 | Path | Role |

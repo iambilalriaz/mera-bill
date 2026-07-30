@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import type { CheerioAPI } from "cheerio";
+import { Agent, ProxyAgent, type Dispatcher } from "undici";
 import {
   BillProviderError,
   type BillChargeLine,
@@ -19,7 +20,24 @@ import {
  * and hidden fields into a postback, then follow the redirect to the bill.
  */
 const PORTAL_ORIGIN = "https://bill.pitc.com.pk";
+
+/**
+ * The portal is hosted in Pakistan and is slow to reach from outside it. Node's
+ * default connect timeout is 10s, which expired before the TCP handshake completed
+ * and surfaced as `UND_ERR_CONNECT_TIMEOUT` — note this is *below* the per-request
+ * timeout below, so raising that alone had no effect. Both are set explicitly now.
+ */
+const CONNECT_TIMEOUT_MS = 15_000;
 const FETCH_TIMEOUT_MS = 20_000;
+
+/**
+ * A lookup makes up to three sequential requests (search page, postback, bill page),
+ * each of which may be retried. One budget across all of them keeps a bad day for the
+ * portal from holding the request open for minutes.
+ */
+const TOTAL_BUDGET_MS = 45_000;
+const MAX_ATTEMPTS = 2;
+const RETRY_DELAY_MS = 600;
 
 /** The bill portal serves a different (near-empty) page to obvious bots. */
 const USER_AGENT =
@@ -170,18 +188,161 @@ function parseBillHistory($: CheerioAPI): BillHistoryEntry[] {
   return entries;
 }
 
-function networkError(cause: unknown, label: string): BillProviderError {
-  const timedOut = cause instanceof Error && cause.name === "TimeoutError";
+/**
+ * `fetch` reports every transport failure as a bare "TypeError: fetch failed" and hides
+ * the real reason one or more `cause` levels down, so both the retry decision and the
+ * user-facing message have to be read from the deepest cause rather than the throw.
+ */
+function rootCause(error: unknown): { name: string; code: string } {
+  let current: unknown = error;
+  let name = "";
+  let code = "";
 
+  for (let depth = 0; current instanceof Error && depth < 5; depth += 1) {
+    name = current.name;
+    code = String((current as { code?: unknown }).code ?? code);
+    current = (current as { cause?: unknown }).cause;
+  }
+
+  return { name, code };
+}
+
+/** Ran out of time rather than being refused — worth telling the user to wait. */
+const TIMEOUT_CODES = new Set([
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "ETIMEDOUT",
+]);
+
+/** Transport faults that a second attempt can plausibly get past. */
+const RETRYABLE_CODES = new Set([
+  ...TIMEOUT_CODES,
+  "UND_ERR_SOCKET",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "EPIPE",
+  "EAI_AGAIN",
+]);
+
+function isTimeout(error: unknown): boolean {
+  const { name, code } = rootCause(error);
+  // AbortSignal.timeout() rejects with a DOMException that carries no code.
+  return name === "TimeoutError" || TIMEOUT_CODES.has(code);
+}
+
+function isRetryable(error: unknown): boolean {
+  const { name, code } = rootCause(error);
+  return name === "TimeoutError" || RETRYABLE_CODES.has(code);
+}
+
+function timedOutMessage(label: string): string {
+  return `The ${label} bill portal took too long to respond. Please try again in a moment.`;
+}
+
+function networkError(cause: unknown, label: string): BillProviderError {
   // The user-facing text is deliberately vague; keep the real reason for the logs.
   console.error(`[${label}] portal request failed`, cause);
   return new BillProviderError(
     "network",
-    timedOut
-      ? `The ${label} bill portal took too long to respond. Please try again in a moment.`
+    isTimeout(cause)
+      ? timedOutMessage(label)
       : `Could not reach the ${label} bill portal. Check your connection and try again.`,
     { cause },
   );
+}
+
+/**
+ * Connection pool for the portal, reused across requests in a warm function.
+ *
+ * `BILL_PORTAL_PROXY_URL` is the escape hatch for the portal refusing traffic from
+ * outside Pakistan: point it at a proxy that egresses there and nothing else changes.
+ */
+let portalAgent: Dispatcher | undefined;
+
+function portalDispatcher(): Dispatcher {
+  if (portalAgent) return portalAgent;
+
+  const options = {
+    connect: { timeout: CONNECT_TIMEOUT_MS },
+    headersTimeout: FETCH_TIMEOUT_MS,
+    bodyTimeout: FETCH_TIMEOUT_MS,
+  };
+  const proxyUrl = process.env.BILL_PORTAL_PROXY_URL?.trim();
+
+  portalAgent = proxyUrl ? new ProxyAgent({ uri: proxyUrl, ...options }) : new Agent(options);
+  return portalAgent;
+}
+
+/** `dispatcher` is an undici extension that the DOM `RequestInit` type omits. */
+type PortalRequestInit = RequestInit & { dispatcher: Dispatcher };
+
+/** Time left in the budget shared by every request of a single lookup. */
+type Deadline = { remainingMs: () => number };
+
+function startDeadline(): Deadline {
+  const expiresAt = Date.now() + TOTAL_BUDGET_MS;
+  return { remainingMs: () => expiresAt - Date.now() };
+}
+
+/** One portal request, bounded by the per-request timeout and the remaining budget. */
+async function portalFetch(
+  url: string | URL,
+  init: RequestInit,
+  deadline: Deadline,
+  label: string,
+): Promise<Response> {
+  const remaining = deadline.remainingMs();
+  if (remaining <= 0) throw new BillProviderError("network", timedOutMessage(label));
+
+  try {
+    return await fetch(url, {
+      ...init,
+      cache: "no-store",
+      signal: AbortSignal.timeout(Math.min(FETCH_TIMEOUT_MS, remaining)),
+      dispatcher: portalDispatcher(),
+    } as PortalRequestInit);
+  } catch (cause) {
+    throw networkError(cause, label);
+  }
+}
+
+/**
+ * Retries the lookup as a whole rather than the individual request. A transport failure
+ * mid-flow can leave the WebForms session half-spent, and re-posting a used __VIEWSTATE
+ * gets the search page back — which the parser would report as "no bill found" for what
+ * is really a network fault. Starting over with a fresh session cannot misreport itself
+ * that way. Only transport faults are retried; a parse or not-found result is final.
+ */
+async function withPortalRetry<T>(
+  runLookup: () => Promise<T>,
+  deadline: Deadline,
+  label: string,
+): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await runLookup();
+    } catch (error) {
+      const roomToRetry = deadline.remainingMs() > RETRY_DELAY_MS;
+      if (attempt >= MAX_ATTEMPTS || !isRetryable(error) || !roomToRetry) throw error;
+
+      console.warn(`[${label}] portal lookup failed, retrying`, rootCause(error));
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+    }
+  }
+}
+
+/**
+ * Reads a response body as text. Separate from `portalFetch` because the abort signal
+ * outlives that call: the body can still stall after the headers arrived, and that has
+ * to be reported as a network failure rather than escaping as an unhandled 500.
+ */
+async function portalText(response: Response, label: string): Promise<string> {
+  try {
+    return await response.text();
+  } catch (cause) {
+    throw networkError(cause, label);
+  }
 }
 
 /** Collects `name=value` pairs from Set-Cookie, merged onto anything already held. */
@@ -213,19 +374,13 @@ type PortalSession = {
 };
 
 /** Loads the search page to obtain a session cookie and the WebForms hidden fields. */
-async function openPortalSession(config: PitcProviderConfig): Promise<PortalSession> {
+async function openPortalSession(
+  config: PitcProviderConfig,
+  deadline: Deadline,
+): Promise<PortalSession> {
   const url = portalUrl(config);
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      headers: BASE_HEADERS,
-      cache: "no-store",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-  } catch (cause) {
-    throw networkError(cause, config.label);
-  }
+  const response = await portalFetch(url, { headers: BASE_HEADERS }, deadline, config.label);
 
   if (!response.ok) {
     throw new BillProviderError(
@@ -235,7 +390,7 @@ async function openPortalSession(config: PitcProviderConfig): Promise<PortalSess
   }
 
   const cookie = mergeCookies(response);
-  const $ = cheerio.load(await response.text());
+  const $ = cheerio.load(await portalText(response, config.label));
 
   const fields: Record<string, string> = {};
   $('input[type="hidden"][name]').each((_, el) => {
@@ -255,9 +410,13 @@ async function openPortalSession(config: PitcProviderConfig): Promise<PortalSess
 }
 
 /** Submits the reference-number search and returns the resulting page's HTML. */
-async function fetchBillHtml(config: PitcProviderConfig, referenceNo: string): Promise<string> {
+async function fetchBillHtml(
+  config: PitcProviderConfig,
+  referenceNo: string,
+  deadline: Deadline,
+): Promise<string> {
   const url = portalUrl(config);
-  const session = await openPortalSession(config);
+  const session = await openPortalSession(config, deadline);
 
   const body = new URLSearchParams({
     ...session.fields,
@@ -266,9 +425,9 @@ async function fetchBillHtml(config: PitcProviderConfig, referenceNo: string): P
     btnSearch: "Search",
   });
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
+  const response = await portalFetch(
+    url,
+    {
       method: "POST",
       headers: {
         ...BASE_HEADERS,
@@ -280,31 +439,25 @@ async function fetchBillHtml(config: PitcProviderConfig, referenceNo: string): P
       body,
       // Handled by hand so the session cookie is definitely carried to the bill page.
       redirect: "manual",
-      cache: "no-store",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-  } catch (cause) {
-    throw networkError(cause, config.label);
-  }
+    },
+    deadline,
+    config.label,
+  );
 
   const location = response.headers.get("location");
 
   // A successful search redirects to /general?refno=…; anything else means the portal
   // kept us on the form, which the parser reports as "no bill found".
-  if (!location) return response.text();
+  if (!location) return portalText(response, config.label);
 
   const cookie = mergeCookies(response, session.cookie);
 
-  let billResponse: Response;
-  try {
-    billResponse = await fetch(new URL(location, url), {
-      headers: { ...BASE_HEADERS, Cookie: cookie, Referer: url },
-      cache: "no-store",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-  } catch (cause) {
-    throw networkError(cause, config.label);
-  }
+  const billResponse = await portalFetch(
+    new URL(location, url),
+    { headers: { ...BASE_HEADERS, Cookie: cookie, Referer: url } },
+    deadline,
+    config.label,
+  );
 
   if (!billResponse.ok) {
     throw new BillProviderError(
@@ -313,7 +466,7 @@ async function fetchBillHtml(config: PitcProviderConfig, referenceNo: string): P
     );
   }
 
-  return billResponse.text();
+  return portalText(billResponse, config.label);
 }
 
 export function parseBillHtml(
@@ -398,7 +551,13 @@ export function createPitcProvider(config: PitcProviderConfig): BillProvider {
         );
       }
 
-      const html = await fetchBillHtml(config, normalized);
+      const deadline = startDeadline();
+      const html = await withPortalRetry(
+        () => fetchBillHtml(config, normalized, deadline),
+        deadline,
+        config.label,
+      );
+
       return parseBillHtml(html, normalized, config);
     },
   };
