@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="MeraBill">
+  <!--
+    The tab icon. Filled rather than stroked, and sized to nearly fill the tile:
+    a 2px stroke disappears entirely once the browser scales this to 16px.
+    Ink tile with a bright brand bolt so it holds up on light and dark tab bars.
+  -->
+  <rect width="64" height="64" rx="15" fill="#0b111c" />
+  <path
+    d="M28.5 6.5 12.8 34.2c-.6 1 .2 2.3 1.4 2.3h9.8L21.6 56c-.2 1.5 1.7 2.3 2.6 1.1l19.6-27.8c.7-1 0-2.4-1.3-2.4h-9.9L34.6 7.6c.2-1.5-1.7-2.3-2.6-1.1z"
+    fill="#3cbe99"
+  />
+</svg>

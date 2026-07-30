@@ -55,6 +55,20 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: APP_NAME }],
   category: "utilities",
+  /**
+   * Declared rather than left to the app/icon.* file convention: that convention
+   * emits a tag for only one of the files, so the SVG was being served and never
+   * referenced. PNG first as the universal fallback, SVG second — browsers that
+   * understand it prefer the later, scalable one, which stays crisp in bookmark
+   * bars and on high-DPI screens where a 32px bitmap goes soft.
+   */
+  icons: {
+    icon: [
+      { url: "/icon.png", type: "image/png", sizes: "32x32" },
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+    apple: [{ url: "/apple-icon.png", sizes: "180x180" }],
+  },
   openGraph: {
     type: "website",
     siteName: APP_NAME,
