@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Camera, Check, Keyboard } from "lucide-react";
+import { Camera, Check, ImagePlus, Keyboard } from "lucide-react";
 import { Alert, Badge, Button, Label, Skeleton, inputClass } from "./ui";
 
 type Extraction = {
@@ -39,7 +39,8 @@ export function PhotoReadingInput({ onConfirm, onClear, onSwitchToManual }: Prop
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showManualHint, setShowManualHint] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const inFlight = useRef(false);
 
   // Object URLs have to be released by hand or the blob stays in memory.
@@ -100,6 +101,18 @@ export function PhotoReadingInput({ onConfirm, onClear, onSwitchToManual }: Prop
     }
   }
 
+  // Shared by both inputs below: the browser/OS's own choice of camera vs. gallery
+  // when a file input has no `capture` attribute is inconsistent across devices —
+  // some show a chooser with both, some (notably the Android Photo Picker) jump
+  // straight to the gallery with no camera option at all. Two dedicated inputs make
+  // the choice explicit and deterministic instead of depending on that behaviour.
+  function onFilePicked(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (file) void handleFile(file);
+    // Allow re-picking the same file.
+    event.target.value = "";
+  }
+
   function handleConfirm() {
     const value = Number(draft);
     if (draft.trim() === "" || !Number.isFinite(value)) {
@@ -114,36 +127,52 @@ export function PhotoReadingInput({ onConfirm, onClear, onSwitchToManual }: Prop
   return (
     <div className="space-y-4">
       <input
-        ref={inputRef}
+        ref={cameraInputRef}
         type="file"
         accept="image/*"
         capture="environment"
         disabled={extracting}
         className="sr-only"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) void handleFile(file);
-          // Allow re-picking the same file.
-          event.target.value = "";
-        }}
+        onChange={onFilePicked}
+      />
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        disabled={extracting}
+        className="sr-only"
+        onChange={onFilePicked}
       />
 
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={extracting}
-        className="group w-full rounded-2xl border-2 border-dashed border-ink-200 bg-ink-50/50 px-4 py-7 text-center transition duration-200 hover:border-brand-400 hover:bg-brand-50/50 disabled:cursor-not-allowed disabled:opacity-60 focus-ring"
-      >
-        <span className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-white text-brand-600 shadow-sm ring-1 ring-ink-900/5 transition group-hover:scale-105">
-          <Camera className="h-5 w-5" aria-hidden="true" />
-        </span>
-        <span className="block text-[15px] font-semibold text-ink-900">
-          {previewUrl ? "Take another photo" : "Take or choose a photo"}
-        </span>
-        <span className="mt-1 block text-sm text-ink-500">
-          Point at the meter&rsquo;s display or dials
-        </span>
-      </button>
+      <p className="text-sm text-ink-500">Point at the meter&rsquo;s display or dials</p>
+
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          type="button"
+          onClick={() => cameraInputRef.current?.click()}
+          disabled={extracting}
+          className="group rounded-2xl border-2 border-dashed border-ink-200 bg-ink-50/50 px-4 py-6 text-center transition duration-200 hover:border-brand-400 hover:bg-brand-50/50 disabled:cursor-not-allowed disabled:opacity-60 focus-ring"
+        >
+          <span className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-white text-brand-600 shadow-sm ring-1 ring-ink-900/5 transition group-hover:scale-105">
+            <Camera className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <span className="block text-sm font-semibold text-ink-900">
+            {previewUrl ? "Retake photo" : "Take a photo"}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => galleryInputRef.current?.click()}
+          disabled={extracting}
+          className="group rounded-2xl border-2 border-dashed border-ink-200 bg-ink-50/50 px-4 py-6 text-center transition duration-200 hover:border-brand-400 hover:bg-brand-50/50 disabled:cursor-not-allowed disabled:opacity-60 focus-ring"
+        >
+          <span className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-white text-brand-600 shadow-sm ring-1 ring-ink-900/5 transition group-hover:scale-105">
+            <ImagePlus className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <span className="block text-sm font-semibold text-ink-900">Choose from gallery</span>
+        </button>
+      </div>
 
       {previewUrl && (
         // eslint-disable-next-line @next/next/no-img-element -- local blob preview, no optimisation possible
@@ -196,14 +225,15 @@ export function PhotoReadingInput({ onConfirm, onClear, onSwitchToManual }: Prop
                   }
                 }
               }}
-              className={`${inputClass} py-4 font-mono text-xl tracking-wide`}
+              className={`${inputClass} min-w-0 flex-1 py-4 font-mono text-xl tracking-wide`}
             />
             {!confirmed && (
               <Button
                 type="button"
                 onClick={handleConfirm}
                 icon={Check}
-                className="w-auto shrink-0 px-5"
+                fullWidth={false}
+                className="shrink-0"
               >
                 Use
               </Button>

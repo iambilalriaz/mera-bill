@@ -1,8 +1,10 @@
 "use client";
 
+import { Capacitor } from "@capacitor/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { calculateConsumption } from "@/lib/consumption";
-import type { UtilityBillData } from "@/lib/providers/types";
+import { fetchBillNative } from "@/lib/providers/pitcNative";
+import { BillProviderError, type UtilityBillData } from "@/lib/providers/types";
 import { rememberSearch } from "@/lib/searchHistory";
 import { AppShell } from "./AppShell";
 import { BillSummaryCard } from "./BillSummaryCard";
@@ -37,25 +39,37 @@ export function BillScreen({
     rememberSearch({ providerCode, referenceNo });
 
     try {
-      const response = await fetch("/api/bill", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ providerCode, referenceNo }),
-      });
-      const data = await response.json();
+      // Inside the native app, the portal is reachable directly from the device —
+      // see lib/providers/pitcNative.ts for why that path exists and /api/bill
+      // (server-side) does not work there. On the web, nothing changes.
+      let fetched: UtilityBillData;
+      if (Capacitor.isNativePlatform()) {
+        fetched = await fetchBillNative(providerCode, referenceNo);
+      } else {
+        const response = await fetch("/api/bill", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ providerCode, referenceNo }),
+        });
+        const data = await response.json();
 
-      if (!response.ok) {
-        setError(data.error ?? "Could not fetch that bill.");
-        return;
+        if (!response.ok) {
+          setError(data.error ?? "Could not fetch that bill.");
+          return;
+        }
+        fetched = data as UtilityBillData;
       }
 
-      const fetched = data as UtilityBillData;
       setBill(fetched);
       // The consumer name only exists once the bill is back; fold it in so the
       // history entry stops being an anonymous number.
       rememberSearch({ providerCode, referenceNo, consumerName: fetched.consumerName });
-    } catch {
-      setError("Could not reach the server. Please check your connection and try again.");
+    } catch (err) {
+      setError(
+        err instanceof BillProviderError
+          ? err.message
+          : "Could not reach the server. Please check your connection and try again.",
+      );
     } finally {
       setLoading(false);
     }

@@ -98,6 +98,7 @@ export function Button({
   variant = "primary",
   loading = false,
   icon: Icon,
+  fullWidth = true,
   className = "",
   disabled,
   ...props
@@ -105,12 +106,13 @@ export function Button({
   variant?: keyof typeof BUTTON_VARIANTS;
   loading?: boolean;
   icon?: LucideIcon;
+  fullWidth?: boolean;
 } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       {...props}
       disabled={disabled || loading}
-      className={`flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-[15px] font-semibold transition duration-150 disabled:cursor-not-allowed focus-ring ${BUTTON_VARIANTS[variant]} ${className}`}
+      className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-[15px] font-semibold transition duration-150 disabled:cursor-not-allowed focus-ring ${fullWidth ? "w-full" : "w-auto"} ${BUTTON_VARIANTS[variant]} ${className}`}
     >
       {loading ? (
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
